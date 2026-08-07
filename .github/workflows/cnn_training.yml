@@ -1,0 +1,59 @@
+name: Train CNN on CIFAR-100
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:   # lets you trigger manually from the Actions tab
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt   # if you have one, for other deps like numpy, tqdm, etc.
+          pip install AbstractIntegratedModule
+
+      - name: Run training script
+        run: python CNN_Transformer.py
+
+      - name: Verify model file exists
+        run: |
+          if [ ! -f best_model.pt ]; then
+            echo "best_model.pt not found!"
+            exit 1
+          fi
+
+          if [ ! -f transformer_weights.json ]; then
+            echo "transformer_weights.json not found!"
+            exit 1
+          fi
+
+      - name: Upload trained model as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained_model
+          path: |
+              best_model.pt
+              transformer_weights.json
+          retention-days: 14

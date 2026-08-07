@@ -2,3 +2,7 @@ numpy
 tqdm
 torch
 abstractintegratedmodule
+scikit-learn
+pandas
+aiohttp
+psutil

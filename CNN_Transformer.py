@@ -300,14 +300,18 @@ def evaluate(model, loader, criterion, device):
     return total_loss / total, correct / total
 
 
-def transformer_training(pipeline, img, class_names):
+def transformer_training(pipeline, image, class_names):
+    img = Image.open(image).convert("RGB")
+    X = transform(img).unsqueeze(0).to(device)  # add batch dimension
+  
     model_transformer = Transformer(
                     vocab_size=1,
                     d_model=pipeline.transformer_d_model,
                     n_heads=pipeline.transformer_heads,
                     num_classes=len(class_names)
                 )
-    X = transform(img).unsqueeze(0).to(device)  # add batch dimension
+
+    pipeline.model2 = model_transformer
     sequence_inputs = pipeline._features_to_sequence(X, d_model=pipeline.transformer_d_model)
     AME = pipeline.model2.AME_Encoder(X)
 

@@ -44,10 +44,7 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f transformer_weights.json ]; then
-            echo "transformer_weights.json not found!"
-            exit 1
-          fi
+    
 
       - name: Upload trained model as artifact
         uses: actions/upload-artifact@v4
@@ -55,5 +52,5 @@ jobs:
           name: trained_model
           path: |
               best_model.pt
-              transformer_weights.json
+
           retention-days: 14

@@ -34,6 +34,7 @@ from AbstractIntegratedModule import Transformer
 memory_name = 'ImageClassificationMemory'
 pipeline = IntegratedPipeline(memory_name=memory_name, use_async=True, agent_port=8080,ssl_cert_file=None, ssl_key_file=None) # provide cert_file path or key_file path (optional)
 
+
 # --------------------------------------------------------------------------- #
 # Reproducibility
 # --------------------------------------------------------------------------- #
@@ -300,22 +301,25 @@ def evaluate(model, loader, criterion, device):
     return total_loss / total, correct / total
 
 
-def transformer_training(pipeline, image, class_names):
-    img = Image.open(image).convert("RGB")
-    X = transform(img).unsqueeze(0).to(device)  # add batch dimension
-  
+def transformer_training(pipeline, loader, num_classes):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_transformer = Transformer(
                     vocab_size=1,
                     d_model=pipeline.transformer_d_model,
                     n_heads=pipeline.transformer_heads,
-                    num_classes=len(class_names)
+                    num_classes=num_classes
                 )
+    for x, y in loader:
+        x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+    
+    x = x.flatten(start_dim=1).detach().cpu().numpy()
+    y = y.detach().cpu().numpy()
+    y = np.eye(num_classes)[np.asarray(y)]
 
-    pipeline.model2 = model_transformer
-    sequence_inputs = pipeline._features_to_sequence(X, d_model=pipeline.transformer_d_model)
-    AME = pipeline.model2.AME_Encoder(X)
+    sequence_inputs = pipeline._features_to_sequence(x, d_model=pipeline.transformer_d_model)
+    pipeline.model2 = model_transformer  # Assign the transformer model to pipeline.model2
 
-    model_transformer.train(sequence_inputs, AME=AME, embedded=True)
+    model_transformer.train(sequence_inputs, y, epochs=pipeline.transformer_training_epochs, mode='dynamic_backward', lr=pipeline.transformer_lr, embedded=True, batch_size=2)
     tf = model_transformer
 
     json_data = {
@@ -338,7 +342,7 @@ def transformer_training(pipeline, image, class_names):
         'output_bias': tf.output_bias
     }
     with open("transformer_weights.json", "w") as file:
-        json.dump(data, file, indent=4)  # indent adds readable formatting
+        json.dump(json_data, file, indent=4)  # indent adds readable formatting
 
 
 def main():
@@ -356,6 +360,7 @@ def main():
     USE_MIXUP = True
     CKPT_PATH = "best_model.pt"
 
+
     if USE_CUSTOM_DATA:
         IMAGE_SIZE = 32  # match to your images; bigger = more compute
         train_loader, test_loader, class_names = get_custom_dataloaders(
@@ -369,6 +374,8 @@ def main():
     else:
         NUM_CLASSES = 100
         train_loader, test_loader = get_dataloaders(batch_size=BATCH_SIZE)
+        
+    transformer_training(pipeline, train_loader, NUM_CLASSES)  # img should be defined or passed appropriately
 
     # ---- Model size — edit these to control param count / speed ----
     MODEL_CONFIG = {
@@ -427,7 +434,8 @@ def main():
     print(f"Training complete. Best validation accuracy: {best_acc:.4f}")
     print(f"Best checkpoint saved to: {CKPT_PATH}")
 
-   
+    print('=== Transformer Training ===')
+    transformer_training(pipeline, train_loader, class_names)  # img should be defined or passed appropriately
 
 
 if __name__ == "__main__":

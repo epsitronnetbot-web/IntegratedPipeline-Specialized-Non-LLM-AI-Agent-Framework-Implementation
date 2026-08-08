@@ -26,13 +26,6 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from tqdm import tqdm
-import json
-
-from AbstractIntegratedModule import IntegratedPipeline
-from AbstractIntegratedModule import Transformer
-
-memory_name = 'ImageClassificationMemory'
-pipeline = IntegratedPipeline(memory_name=memory_name, use_async=True, agent_port=8080,ssl_cert_file=None, ssl_key_file=None) # provide cert_file path or key_file path (optional)
 
 
 # --------------------------------------------------------------------------- #
@@ -142,11 +135,9 @@ class RobustCNN(nn.Module):
 # --------------------------------------------------------------------------- #
 # Data (CIFAR-10 example — swap for your own dataset/ImageFolder as needed)
 # --------------------------------------------------------------------------- #
-# On Windows, DataLoader worker processes have real startup overhead
-# (each is a fresh Python process, often slowed further by antivirus
-# scanning). num_workers=2 is a safer default there; num_workers=0
-# avoids multiprocessing entirely if things still seem slow to start.
-def get_dataloaders(data_dir="./data", batch_size=128, num_workers=2):
+def get_dataloaders(data_dir="./data", batch_size=128, num_workers=2, use_cifar100=False):
+    """Returns train_loader, test_loader, class_names (so callers never have
+    to guess or hardcode labels that might not match the dataset in use)."""
     mean, std = (0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)
 
     train_tf = transforms.Compose([
@@ -162,14 +153,15 @@ def get_dataloaders(data_dir="./data", batch_size=128, num_workers=2):
         transforms.Normalize(mean, std),
     ])
 
-    train_set = datasets.CIFAR100(data_dir, train=True, download=True, transform=train_tf)
-    test_set = datasets.CIFAR100(data_dir, train=False, download=True, transform=test_tf)
+    dataset_cls = datasets.CIFAR100 if use_cifar100 else datasets.CIFAR10
+    train_set = dataset_cls(data_dir, train=True, download=True, transform=train_tf)
+    test_set = dataset_cls(data_dir, train=False, download=True, transform=test_tf)
 
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,
                                num_workers=num_workers, pin_memory=True, drop_last=True)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,
                               num_workers=num_workers, pin_memory=True)
-    return train_loader, test_loader
+    return train_loader, test_loader, train_set.classes
 
 
 def get_custom_dataloaders(train_dir, val_dir, image_size=64, batch_size=128,
@@ -301,6 +293,9 @@ def evaluate(model, loader, criterion, device):
     return total_loss / total, correct / total
 
 
+
+
+
 def transformer_training(pipeline, loader, num_classes):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_transformer = Transformer(
@@ -341,16 +336,21 @@ def transformer_training(pipeline, loader, num_classes):
         'output': tf.output,
         'output_bias': tf.output_bias
     }
+    serializable_data = {key: val.tolist() for key, val in json_data.items()}
+
+
     with open("transformer_weights.json", "w") as file:
-        json.dump(json_data, file, indent=4)  # indent adds readable formatting
+        json.dump(serializable_data, file, indent=4)  # indent adds readable formatting
 
 
+ 
 def main():
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ---- Toggle this: True = use your own image folders, False = CIFAR-10 ----
+    # ---- Toggle this: True = use your own image folders, False = CIFAR ----
     USE_CUSTOM_DATA = False
+    USE_CIFAR100 = True  # only relevant when USE_CUSTOM_DATA is False
 
     EPOCHS = 100
     BATCH_SIZE = 128
@@ -360,22 +360,23 @@ def main():
     USE_MIXUP = True
     CKPT_PATH = "best_model.pt"
 
-
     if USE_CUSTOM_DATA:
-        IMAGE_SIZE = 32  # match to your images; bigger = more compute
+        IMAGE_SIZE = 64  # match to your images; bigger = more compute
         train_loader, test_loader, class_names = get_custom_dataloaders(
             train_dir="my_data/train",
             val_dir="my_data/val",
             image_size=IMAGE_SIZE,
             batch_size=BATCH_SIZE,
         )
-        NUM_CLASSES = len(class_names)
-        print(f"Found {NUM_CLASSES} classes: {class_names}")
     else:
-        NUM_CLASSES = 100
-        train_loader, test_loader = get_dataloaders(batch_size=BATCH_SIZE)
-        
-    
+        IMAGE_SIZE = 32
+        train_loader, test_loader, class_names = get_dataloaders(
+            batch_size=BATCH_SIZE, use_cifar100=USE_CIFAR100
+        )
+
+    NUM_CLASSES = len(class_names)
+    print(f"Training on {NUM_CLASSES} classes: {class_names}")
+
     # ---- Model size — edit these to control param count / speed ----
     MODEL_CONFIG = {
         "in_channels": 3,
@@ -419,11 +420,10 @@ def main():
                 "model_state": model.state_dict(),
                 "val_acc": val_acc,
                 "num_classes": NUM_CLASSES,
-                "class_names": class_names if USE_CUSTOM_DATA else
-                    ["airplane", "automobile", "bird", "cat", "deer",
-                     "dog", "frog", "horse", "ship", "truck"],
+                "class_names": class_names,
                 "model_config": MODEL_CONFIG,
-                "image_size": IMAGE_SIZE if USE_CUSTOM_DATA else 32,
+                "image_size": IMAGE_SIZE,
+                "normalization": "custom" if USE_CUSTOM_DATA else "cifar",
             }, CKPT_PATH)
 
         if early_stopper.step(val_acc):
@@ -433,8 +433,9 @@ def main():
     print(f"Training complete. Best validation accuracy: {best_acc:.4f}")
     print(f"Best checkpoint saved to: {CKPT_PATH}")
 
-    
-
 
 if __name__ == "__main__":
     main()
+
+
+

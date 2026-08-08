@@ -427,8 +427,7 @@ def main():
     print(f"Training complete. Best validation accuracy: {best_acc:.4f}")
     print(f"Best checkpoint saved to: {CKPT_PATH}")
 
-    print('=== Transformer Training ===')
-    transformer_training(pipeline, img, class_names)  # img should be defined or passed appropriately
+   
 
 
 if __name__ == "__main__":

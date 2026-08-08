@@ -375,8 +375,7 @@ def main():
         NUM_CLASSES = 100
         train_loader, test_loader = get_dataloaders(batch_size=BATCH_SIZE)
         
-    transformer_training(pipeline, train_loader, NUM_CLASSES)  # img should be defined or passed appropriately
-
+    
     # ---- Model size — edit these to control param count / speed ----
     MODEL_CONFIG = {
         "in_channels": 3,
@@ -434,8 +433,7 @@ def main():
     print(f"Training complete. Best validation accuracy: {best_acc:.4f}")
     print(f"Best checkpoint saved to: {CKPT_PATH}")
 
-    print('=== Transformer Training ===')
-    transformer_training(pipeline, train_loader, class_names)  # img should be defined or passed appropriately
+    
 
 
 if __name__ == "__main__":

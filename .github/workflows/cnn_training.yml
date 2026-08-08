@@ -55,4 +55,5 @@ jobs:
           name: trained_model
           path: |
               best_model.pt
+              transformer_weights.json
           retention-days: 14

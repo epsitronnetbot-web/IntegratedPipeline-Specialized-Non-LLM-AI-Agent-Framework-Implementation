@@ -31,6 +31,8 @@ import json
 from AbstractIntegratedModule import IntegratedPipeline
 from AbstractIntegratedModule import Transformer
 
+memory_name = 'ImageClassificationMemory'
+pipeline = IntegratedPipeline(memory_name=memory_name, use_async=True, agent_port=8080,ssl_cert_file=None, ssl_key_file=None) # provide cert_file path or key_file path (optional)
 
 # --------------------------------------------------------------------------- #
 # Reproducibility

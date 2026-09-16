@@ -1,4 +1,4 @@
-name: Train CNN on CIFAR-100
+name: Train CNN on Waste Dataset
 
 on:
   push:
@@ -40,17 +40,16 @@ jobs:
       - name: Verify model file exists
         run: |
           if [ ! -f best_model.pt ]; then
-            echo "best_model.pt not found!"
+            echo "best_model.pth not found!"
             exit 1
           fi
 
     
-
       - name: Upload trained model as artifact
         uses: actions/upload-artifact@v4
         with:
           name: trained_model
           path: |
-              best_model.pt
+              best_model.pth
 
           retention-days: 14

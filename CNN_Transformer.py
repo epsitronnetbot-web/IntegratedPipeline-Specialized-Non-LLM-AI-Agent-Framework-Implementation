@@ -1,17 +1,13 @@
-import math
 import os
-import kagglehub
 import random
+import kagglehub
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torch.utils.data import random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision import datasets, transforms
 from tqdm import tqdm
-from pathlib import Path
-import sys
+
 
 def set_seed(seed: int = 42):
     random.seed(seed)
@@ -113,61 +109,16 @@ class RobustCNN(nn.Module):
         x = self.pool(x)
         return self.head(x)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-set_seed(42)
 
-model = RobustCNN(
-    in_channels=3,
-    num_classes=2,          # organic vs recyclable, bukan 10 seperti CIFAR
-    base_width=64,
-    blocks_per_stage=(2, 2, 2),
-    dropout=0.1,
-    head_dropout=0.3
-).to(device)
-IMG_SIZE = 64
-
-train_transform = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
-    transforms.RandomHorizontalFlip(),      # augmentasi ringan, gambar sampah tidak sensitif orientasi
-    transforms.RandomRotation(10),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet stats, umum dipakai
-                          std=[0.229, 0.224, 0.225]),
-])
-
-eval_transform = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                          std=[0.229, 0.224, 0.225]),
-])
-
-base_path = kagglehub.dataset_download("techsash/waste-classification-data")
-train_dir = os.path.join(base_path, "DATASET", "TRAIN")
-test_dir = os.path.join(base_path, "DATASET", "TEST")
-
-full_train = datasets.ImageFolder(root=train_dir, transform=train_transform)
-test_dataset = datasets.ImageFolder(root=test_dir, transform=eval_transform)
-
-# Split train jadi train + validation (dataset TRAIN/TEST folder biasanya tidak ada val)
-val_size = int(0.15 * len(full_train))
-train_size = len(full_train) - val_size
-train_dataset, val_dataset = random_split(full_train, [train_size, val_size])
-
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=2)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2)
-
-criterion = nn.CrossEntropyLoss()   # cocok untuk num_classes=2 dengan label integer (bukan one-hot)
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
-
+# --------------------------------------------------------------------------- #
+# Train / eval loops
+# --------------------------------------------------------------------------- #
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
     running_loss, correct, total = 0.0, 0, 0
     pbar = tqdm(loader, desc="training", leave=False)
 
-    for images, labels in loader:
+    for images, labels in pbar:  # FIX: iterasi ke pbar, bukan loader
         images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(images)
@@ -200,10 +151,74 @@ def evaluate(model, loader, criterion, device):
 
     return running_loss / total, correct / total
 
+
 def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_seed(42)
+
+    model = RobustCNN(
+        in_channels=3,
+        num_classes=2,  # organic vs recyclable
+        base_width=64,
+        blocks_per_stage=(2, 2, 2),
+        dropout=0.1,
+        head_dropout=0.3
+    ).to(device)
+
+    IMG_SIZE = 64
+
+    train_transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                              std=[0.229, 0.224, 0.225]),
+    ])
+
+    eval_transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                              std=[0.229, 0.224, 0.225]),
+    ])
+
+    base_path = kagglehub.dataset_download("techsash/waste-classification-data")
+    train_dir = os.path.join(base_path, "DATASET", "TRAIN")
+    test_dir = os.path.join(base_path, "DATASET", "TEST")
+
+    # FIX: dua instance dataset terpisah (transform beda) dari folder yang sama,
+    # supaya validation set TIDAK ikut kena augmentasi random training.
+    full_train_aug = datasets.ImageFolder(root=train_dir, transform=train_transform)
+    full_train_eval = datasets.ImageFolder(root=train_dir, transform=eval_transform)
+    test_dataset = datasets.ImageFolder(root=test_dir, transform=eval_transform)
+
+    val_size = int(0.15 * len(full_train_aug))
+    train_size = len(full_train_aug) - val_size
+
+    generator = torch.Generator().manual_seed(42)
+    train_subset, val_subset = random_split(
+        range(len(full_train_aug)), [train_size, val_size], generator=generator
+    )
+
+    train_dataset = Subset(full_train_aug, train_subset.indices)
+    val_dataset = Subset(full_train_eval, val_subset.indices)
+
+    # num_workers=0 supaya aman dijalankan di GitHub Actions runner (CPU, core terbatas)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
+
     num_epochs = 30
     best_val_loss = float("inf")
     patience, patience_counter = 5, 0
+
+    # FIX: nama file disamakan dengan yang dicek di workflow YAML (best_model.pth)
+    model_path = "best_model.pth"
 
     for epoch in range(num_epochs):
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
@@ -211,23 +226,23 @@ def main():
         scheduler.step(val_loss)
 
         print(f"Epoch {epoch+1}/{num_epochs} | "
-            f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
-            f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
+              f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
+              f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
 
-        # Simpan model terbaik
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), "cnn_model.pth")
+            torch.save(model.state_dict(), model_path)
         else:
             patience_counter += 1
             if patience_counter >= patience:
                 print("Early stopping triggered.")
                 break
 
-    model.load_state_dict(torch.load("cnn_model.pth"))
+    model.load_state_dict(torch.load(model_path))
     test_loss, test_acc = evaluate(model, test_loader, criterion, device)
     print(f"Test Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.4f}")
+
 
 if __name__ == '__main__':
     main()

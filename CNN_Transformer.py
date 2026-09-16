@@ -141,7 +141,7 @@ eval_transform = transforms.Compose([
                           std=[0.229, 0.224, 0.225]),
 ])
 
-base_path = r"C:\Users\Dell\.cache\kagglehub\datasets\techsash\waste-classification-data\versions\1"
+base_path = kagglehub.dataset_download("techsash/waste-classification-data")
 train_dir = os.path.join(base_path, "DATASET", "TRAIN")
 test_dir = os.path.join(base_path, "DATASET", "TEST")
 

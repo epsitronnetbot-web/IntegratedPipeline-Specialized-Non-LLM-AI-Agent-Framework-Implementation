@@ -3,11 +3,12 @@ name: Train CNN on Waste Dataset
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:   # lets you trigger manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   train:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
 
     steps:
       - name: Checkout repository
@@ -16,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
 
       - name: Cache pip packages
         uses: actions/cache@v4
@@ -29,27 +30,26 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt   # if you have one, for other deps like numpy, tqdm, etc.
-          pip install AbstractIntegratedModule
+          pip install kagglehub
+          pip install -r requirements.txt
 
       - name: Run training script
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: python CNN_Transformer.py
 
       - name: Verify model file exists
         run: |
-          if [ ! -f best_model.pt ]; then
+          if [ ! -f best_model.pth ]; then
             echo "best_model.pth not found!"
             exit 1
           fi
 
-    
       - name: Upload trained model as artifact
         uses: actions/upload-artifact@v4
         with:
           name: trained_model
-          path: |
-              best_model.pth
-
+          path: best_model.pth
           retention-days: 14

@@ -213,7 +213,7 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
 
-    num_epochs = 30
+    num_epochs = 13
     best_val_loss = float("inf")
     patience, patience_counter = 5, 0
 

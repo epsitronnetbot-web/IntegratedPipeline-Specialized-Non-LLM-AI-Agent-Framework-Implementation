@@ -183,6 +183,14 @@ def main():
                               std=[0.229, 0.224, 0.225]),
     ])
 
+    model_config = {
+        "in_channels": 3,
+        "base_width": 64,
+        "blocks_per_stage": (2, 2, 2),
+        "dropout": 0.1,
+        "head_dropout": 0.3,
+    }
+
     base_path = kagglehub.dataset_download("techsash/waste-classification-data")
     train_dir = os.path.join(base_path, "DATASET", "TRAIN")
     test_dir = os.path.join(base_path, "DATASET", "TEST")
@@ -213,7 +221,7 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5)
 
-    num_epochs = 13
+    num_epochs = 30
     best_val_loss = float("inf")
     patience, patience_counter = 5, 0
 
@@ -232,14 +240,25 @@ def main():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), model_path)
+            # Checkpoint LENGKAP -- bukan cuma state_dict, supaya predict.py
+            # bisa baca num_classes/class_names/image_size otomatis, tanpa hardcode.
+            torch.save({
+                "model_state": model.state_dict(),
+                "num_classes": 2,
+                "class_names": full_train_aug.classes,   # otomatis ['O', 'R'] dari ImageFolder
+                "image_size": IMG_SIZE,
+                "model_config": model_config,
+                "normalization": "custom",   # custom = ImageNet stats (dipakai di train/eval_transform)
+                "val_acc": val_acc,
+            }, model_path)
         else:
             patience_counter += 1
             if patience_counter >= patience:
                 print("Early stopping triggered.")
                 break
 
-    model.load_state_dict(torch.load(model_path))
+    checkpoint = torch.load(model_path)
+    model.load_state_dict(checkpoint["model_state"])
     test_loss, test_acc = evaluate(model, test_loader, criterion, device)
     print(f"Test Loss: {test_loss:.4f} | Test Accuracy: {test_acc:.4f}")
 
